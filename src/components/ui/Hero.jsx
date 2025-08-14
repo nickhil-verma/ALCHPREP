@@ -1,5 +1,4 @@
-//not really being used
-import React from 'react'
+ import React from 'react'
  
  const Hero = () => {
    return (

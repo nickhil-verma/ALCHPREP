@@ -28,11 +28,11 @@ export function Navbar() {
   // Don't render theme-dependent content until mounted
   if (!mounted) {
     return (
-      <header className="sticky top-0 z-50 w-full border-b border-transparent bg-transparent backdrop-blur-sm supports-[backdrop-filter]:bg-transparent">
-        <div className="container mx-auto max-w-6xl">
-          <div className="flex h-16 items-center justify-between px-8 md:px-12">
-            {/* Logo Section - Shifted towards center */}
-            <div className="flex items-center gap-3 flex-shrink-0 ml-4 md:ml-8">
+      <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60">
+        <div className="container mx-auto">
+          <div className="flex h-16 items-center justify-between px-6">
+            {/* Logo Section */}
+            <div className="flex items-center gap-3">
               <div className="flex-shrink-0">
                 <Image
                   src="/alchprep-logo.svg"
@@ -50,23 +50,10 @@ export function Navbar() {
               </Link>
             </div>
             
-            {/* Centered navigation placeholder */}
-            <div className="hidden md:flex flex-1 justify-center mx-8">
-              <div className="flex items-center gap-8">
-                <div className="h-4 w-16 bg-muted rounded animate-pulse"></div>
-                <div className="h-4 w-14 bg-muted rounded animate-pulse"></div>
-              </div>
-            </div>
-            
-            {/* Skeleton for right side actions - Shifted towards center */}
-            <div className="hidden md:flex items-center gap-3 flex-shrink-0 mr-4 md:mr-8">
-              <div className="h-9 w-16 rounded border border-border/50 bg-muted animate-pulse"></div>
-              <div className="h-9 w-9 rounded-full border border-border/50 bg-muted animate-pulse"></div>
+            {/* Skeleton for theme toggle */}
+            <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-full border border-border/50 bg-muted animate-pulse"></div>
             </div>
-
-            {/* Mobile menu button */}
-            <div className="md:hidden h-9 w-9 rounded border border-border/50 bg-muted animate-pulse mr-4"></div>
           </div>
         </div>
       </header>
@@ -128,11 +115,11 @@ export function Navbar() {
   );
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-transparent bg-transparent backdrop-blur-sm supports-[backdrop-filter]:bg-transparent">
-      <div className="container mx-auto max-w-6xl">
-        <div className="flex h-16 items-center justify-between px-8 md:px-12">
-          {/* Logo Section - Shifted towards center */}
-          <div className="flex items-center gap-3 flex-shrink-0 ml-4 md:ml-8">
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60">
+      <div className="container mx-auto">
+        <div className="flex h-16 items-center justify-between px-6">
+          {/* Logo Section */}
+          <div className="flex items-center gap-3">
             <div className="flex-shrink-0">
               <Image
                 src="/alchprep-logo.svg"
@@ -150,9 +137,9 @@ export function Navbar() {
             </Link>
           </div>
 
-          {/* Desktop Navigation - Centered */}
-          <nav className="hidden md:flex items-center justify-center flex-1 mx-8">
-            <div className="flex items-center gap-8">
+          {/* Desktop Navigation */}
+          <nav className="hidden md:flex items-center gap-8">
+            <div className="flex items-center gap-6">
               <Link
                 href="/dashboard"
                 className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus:text-foreground relative group"
@@ -167,60 +154,52 @@ export function Navbar() {
                 Prepare
                 <span className="absolute inset-x-0 -bottom-1 h-0.5 bg-primary scale-x-0 group-hover:scale-x-100 transition-transform duration-200"></span>
               </Link>
-              <Link
-                href="/about"
-                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus:text-foreground relative group"
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                asChild
+                variant="default"
+                size="sm"
+                className="px-4 py-2 font-medium hover:bg-primary/90 transition-colors duration-200"
               >
-                About
-                <span className="absolute inset-x-0 -bottom-1 h-0.5 bg-primary scale-x-0 group-hover:scale-x-100 transition-transform duration-200"></span>
-              </Link>
+                <Link href="/login">Login</Link>
+              </Button>
+
+              {/* Professional Theme Toggle */}
+              <ThemeToggle />
+
+              {/* User Avatar Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="relative h-9 w-9 rounded-full border border-border/50 hover:border-border hover:bg-accent transition-all duration-200"
+                  >
+                    <CircleUser className="h-4 w-4" />
+                    <span className="sr-only">Toggle user menu</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48 p-1">
+                  <DropdownMenuLabel className="px-3 py-2">
+                    My Account
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="px-3 py-2 cursor-pointer">
+                    Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="px-3 py-2 cursor-pointer">
+                    Support
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="px-3 py-2 cursor-pointer text-destructive focus:text-destructive">
+                    Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </nav>
-
-          {/* Right Side Actions - Shifted towards center */}
-          <div className="hidden md:flex items-center gap-3 flex-shrink-0 mr-4 md:mr-8">
-            <Button
-              asChild
-              variant="default"
-              size="sm"
-              className="px-4 py-2 font-medium hover:bg-primary/90 transition-colors duration-200"
-            >
-              <Link href="/login">Login</Link>
-            </Button>
-
-            {/* Professional Theme Toggle */}
-            <ThemeToggle />
-
-            {/* User Avatar Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="relative h-9 w-9 rounded-full border border-border/50 hover:border-border hover:bg-accent transition-all duration-200"
-                >
-                  <CircleUser className="h-4 w-4" />
-                  <span className="sr-only">Toggle user menu</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48 p-1">
-                <DropdownMenuLabel className="px-3 py-2">
-                  My Account
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="px-3 py-2 cursor-pointer">
-                  Settings
-                </DropdownMenuItem>
-                <DropdownMenuItem className="px-3 py-2 cursor-pointer">
-                  Support
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="px-3 py-2 cursor-pointer text-destructive focus:text-destructive">
-                  Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
 
           {/* Mobile Menu Trigger */}
           <Sheet>
@@ -228,7 +207,7 @@ export function Navbar() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="md:hidden h-9 w-9 p-0 hover:bg-accent transition-colors duration-200 mr-4"
+                className="md:hidden h-9 w-9 p-0 hover:bg-accent transition-colors duration-200"
               >
                 <Menu className="h-4 w-4" />
                 <span className="sr-only">Toggle navigation menu</span>
