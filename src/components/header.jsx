@@ -18,8 +18,7 @@ import { Menu, CircleUser, Sun, Moon, Monitor } from "lucide-react";
 
 // --- Navigation links ---
 const navLinks = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/prepare", label: "Prepare" },
+  { href: "/", label: "Home" },
   { href: "/about", label: "About" },
 ];
 
@@ -94,7 +93,7 @@ export function Header() {
             <UserMenu onLogout={handleLogout} />
           ) : (
             <Button asChild size="sm">
-              <Link href="/login">Login</Link>
+              <Link href="/">Explore</Link>
             </Button>
           )}
         </div>
@@ -210,7 +209,7 @@ const MobileSheet = ({ isLoggedIn, onLogout }) => (
         </div>
         {!isLoggedIn && (
           <Button asChild className="mt-4 w-full font-medium">
-            <Link href="/login">Login</Link>
+            <Link href="/">Explore</Link>
           </Button>
         )}
       </div>

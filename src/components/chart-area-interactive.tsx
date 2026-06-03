@@ -242,7 +242,7 @@ export function ChartAreaInteractive() {
                   color=""
                   nameKey=""
                   labelKey=""
-                  labelFormatter={(value) => {
+                  labelFormatter={(value: any) => {
                     return new Date(value).toLocaleDateString("en-US", {
                       month: "short",
                       day: "numeric",

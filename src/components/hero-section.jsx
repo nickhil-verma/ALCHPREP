@@ -8,16 +8,7 @@ import { TextEffect } from '@/components/ui/text-effect'
 import { AnimatedGroup } from '@/components/ui/animated-group'
 import { ChartAreaInteractive } from './chart-area-interactive'
 
-import  Pricing  from './pricing'
-import Footer from './Footer'
-
-import LogoCloud from './logo-cloud'
-import Testimonials from './testimonials'
-import CallToAction from './call-to-action'
-import FeaturesSection from './features-8'
-import StatsSection from './stats'
-import FAQsThree from './faqs-3'
-import { Header } from './header'
+import { Header } from './header';
 
 const transitionVariants = {
     item: {
@@ -151,8 +142,8 @@ export default function HeroSection() {
                                         key={1}
                                         className="bg-foreground/10 rounded-[calc(var(--radius-xl)+0.125rem)] border p-0.5">
                                         <Button asChild size="lg" className="rounded-xl px-5 text-base">
-                                            <Link href="#link">
-                                                <span className="text-nowrap">Start Preparing</span>
+                                            <Link href="/">
+                                                <span className="text-nowrap">Explore ALCHPREP</span>
                                             </Link>
                                         </Button>
                                     </div>
@@ -196,14 +187,7 @@ export default function HeroSection() {
                 </section>
               
             </main>
-              <LogoCloud/>
-                <FeaturesSection/>
-                <Testimonials/>
-                <StatsSection/>
-                <Pricing/>
-                <CallToAction/>
-                <FAQsThree/>
-            <Footer/>
+              
         </>
     );
 }
