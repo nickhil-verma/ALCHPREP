@@ -51,12 +51,38 @@ const MOOD_COLORS = {
   TERRIBLE: "bg-red-950/40 text-red-400 border-red-500/20 hover:bg-red-900/30"
 };
 
+const JOURNAL_COVERS = [
+  "https://images.unsplash.com/photo-1516979187457-637abb4f9353?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1506784983877-45594efa4cbe?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1517842645767-c639042777db?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1516414447565-b14be0adf13e?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1501504905252-473c47e087f8?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1518655061766-48f23af9307f?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1499750310107-5fef28a66643?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?q=80&w=1200&auto=format&fit=crop"
+];
+
+const getJournalCover = (journalId) => {
+  if (!journalId) return JOURNAL_COVERS[0];
+  let hash = 0;
+  const idStr = journalId.toString();
+  for (let i = 0; i < idStr.length; i++) {
+    hash = idStr.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % JOURNAL_COVERS.length;
+  return JOURNAL_COVERS[index];
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, goals, journal, chat, memory
   const [loading, setLoading] = useState(true);
   const [dbData, setDbData] = useState(null);
   const [user, setUser] = useState(null);
+  const [taskSortBasis, setTaskSortBasis] = useState("status"); // status, goal
+  const [selectedTaskTag, setSelectedTaskTag] = useState("all");
 
   // Sidebar Controls State
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -85,12 +111,15 @@ export default function DashboardPage() {
   const [journalSearch, setJournalSearch] = useState("");
   const [journalLoading, setJournalLoading] = useState(false);
 
-  // 3. Chat Form
-  const [chatMessage, setChatMessage] = useState("");
-  const [chatHistory, setChatHistory] = useState([]);
-  const [mentorPersonality, setMentorPersonality] = useState("MOTIVATIONAL"); // MOTIVATIONAL, STRICT, FRIENDLY, ANALYTICAL
-  const [chatLoading, setChatLoading] = useState(false);
-  const chatEndRef = useRef(null);
+  // 3. AI Mentor Dialogue states
+  const [evaluation, setEvaluation] = useState(null);
+  const [evalLoading, setEvalLoading] = useState(false);
+
+  // 3.5 Journal Editor Ref & Autosave State
+  const textareaRef = useRef(null);
+  const [saveStatus, setSaveStatus] = useState("saved"); // saved, saving, unsaved
+  const isInitialLoad = useRef(true);
+  const autoGenAttempted = useRef(false);
 
   // 4. Memory Form
   const [memoryContent, setMemoryContent] = useState("");
@@ -401,6 +430,65 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, []);
 
+
+
+  // Debounced autosave for Journal
+  useEffect(() => {
+    if (isInitialLoad.current) {
+      isInitialLoad.current = false;
+      setSaveStatus("saved");
+      return;
+    }
+
+    setSaveStatus("unsaved");
+
+    const delayDebounce = setTimeout(async () => {
+      setSaveStatus("saving");
+      try {
+        const defaultTitleDate = new Date().toLocaleDateString("en-US", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        });
+        const finalTitle = journalTitle.trim() || `Diary — ${defaultTitleDate}`;
+        const serializedContent = `# ${finalTitle}\n\n${journalContent}`;
+
+        const url = selectedJournalId ? `/api/journal/${selectedJournalId}` : "/api/journal";
+        const method = selectedJournalId ? "PUT" : "POST";
+
+        const res = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: serializedContent,
+            mood: journalMood,
+            tags: journalTags ? journalTags.split(",").map(t => t.trim()).filter(Boolean) : []
+          }),
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          fetchDashboardData();
+          await fetchJournals();
+          if (json.success && json.data) {
+            if (!selectedJournalId) {
+              setSelectedJournalId(json.data._id);
+            }
+          }
+          setSaveStatus("saved");
+        } else {
+          setSaveStatus("unsaved");
+        }
+      } catch (e) {
+        console.error("Autosave failed", e);
+        setSaveStatus("unsaved");
+      }
+    }, 1500);
+
+    return () => clearTimeout(delayDebounce);
+  }, [journalTitle, journalContent, journalMood, journalTags]);
+
   // 2. Load memories when clicking Memory Tab
   const fetchMemories = async () => {
     try {
@@ -426,24 +514,43 @@ export default function DashboardPage() {
     }
   }, [activeTab]);
 
-  // 3. Load chat history when clicking Chat Tab
-  const fetchChatHistory = async () => {
+  // 3. Load AI Mentor Evaluation when clicking tab
+  const fetchEvaluation = async () => {
+    setEvalLoading(true);
     try {
       const res = await fetch("/api/mentor/chat");
       if (res.ok) {
         const json = await res.json();
-        if (json.success) setChatHistory(json.data);
+        if (json.success) setEvaluation(json.data);
       }
     } catch (e) {
-      console.error("Error loading chat", e);
+      console.error("Error loading evaluation", e);
+    } finally {
+      setEvalLoading(false);
+    }
+  };
+
+  const handleRefreshEvaluation = async () => {
+    setEvalLoading(true);
+    try {
+      const res = await fetch("/api/mentor/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success) setEvaluation(json.data);
+      }
+    } catch (e) {
+      console.error("Error refreshing evaluation", e);
+    } finally {
+      setEvalLoading(false);
     }
   };
 
   useEffect(() => {
     if (activeTab === "chat") {
-      fetchChatHistory();
-      // Scroll to bottom
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 200);
+      fetchEvaluation();
     }
   }, [activeTab]);
 
@@ -607,6 +714,7 @@ export default function DashboardPage() {
 
   // Initialize form state for writing a new journal entry
   const initNewJournal = () => {
+    isInitialLoad.current = true;
     setSelectedJournalId(null);
     setJournalTitle("");
     setJournalContent("");
@@ -616,12 +724,49 @@ export default function DashboardPage() {
 
   // Select and load a journal entry into the editor workspace
   const handleSelectJournal = (journal) => {
+    isInitialLoad.current = true;
     setSelectedJournalId(journal._id);
     const parsed = parseJournalContent(journal.content);
     setJournalTitle(parsed.title);
     setJournalContent(parsed.body);
     setJournalMood(journal.mood || "GOOD");
     setJournalTags(journal.tags ? journal.tags.join(", ") : "");
+  };
+
+  const insertFormatting = (prefix) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const before = text.substring(0, start);
+    const after = text.substring(end);
+    const selected = text.substring(start, end);
+    const replacement = prefix + selected;
+    setJournalContent(before + replacement + after);
+    
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+    }, 50);
+  };
+
+  const wrapFormatting = (wrapper) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const before = text.substring(0, start);
+    const after = text.substring(end);
+    const selected = text.substring(start, end);
+    const replacement = wrapper + selected + wrapper;
+    setJournalContent(before + replacement + after);
+    
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + wrapper.length, start + wrapper.length + selected.length);
+    }, 50);
   };
 
   // Fetch all user journals for the sidebar database
@@ -720,56 +865,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Submit Chat Message
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!chatMessage.trim()) return;
 
-    const userMsg = { role: "user", content: chatMessage };
-    setChatHistory(prev => [...prev, userMsg]);
-    setChatMessage("");
-    setChatLoading(true);
-
-    try {
-      // Persist the mentor personality setting to the database
-      await fetch("/api/preferences", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ai_personality: mentorPersonality,
-        })
-      }).catch((err) => console.warn("Failed to save personality preference", err));
-
-      const res = await fetch("/api/mentor/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: userMsg.content,
-          contextType: "MENTOR"
-        }),
-      });
-
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success) {
-          setChatHistory(prev => [...prev, { role: "assistant", content: json.data.response }]);
-          setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setChatLoading(false);
-    }
-  };
-
-  // Clear Chat History
-  const handleClearChat = async () => {
-    if (confirm("Are you sure you want to clear your conversation history?")) {
-      await fetch("/api/mentor/chat", { method: "DELETE" });
-      setChatHistory([]);
-    }
-  };
 
   // Submit Memory
   const handleCreateMemory = async (e) => {
@@ -1094,7 +1190,7 @@ export default function DashboardPage() {
 
                 {/* TODAY'S MISSION CHECKLIST */}
                 <Card className="bg-zinc-900/20 border-zinc-800/80 backdrop-blur-xl">
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2">
                     <div>
                       <CardTitle className="text-lg font-bold text-white flex items-center gap-2">
                         <CheckCircle2 className="h-5 w-5 text-violet-400" />
@@ -1102,63 +1198,168 @@ export default function DashboardPage() {
                       </CardTitle>
                       <CardDescription className="text-zinc-400">Complete tasks to update active goals</CardDescription>
                     </div>
-                    {dbData?.goals?.length > 0 && dbData?.todayTasks?.length === 0 && (
-                      <Button
-                        size="sm"
-                        onClick={() => triggerTaskGeneration(dbData.goals[0]._id)}
-                        className="bg-violet-600 hover:bg-violet-500 text-white"
-                      >
-                        <Sparkles className="h-3.5 w-3.5 mr-1" />
-                        Gen Today's Tasks
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {dbData?.todayTasks?.length > 0 && (
+                        <select
+                          value={taskSortBasis}
+                          onChange={(e) => setTaskSortBasis(e.target.value)}
+                          className="h-8 px-2.5 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-300 focus:outline-none focus:ring-1 focus:ring-violet-500 text-xs font-medium cursor-pointer transition-all hover:border-zinc-700 hover:bg-zinc-900/50"
+                        >
+                          <option value="status">Sort by Status</option>
+                          <option value="goal">Sort by Goal</option>
+                        </select>
+                      )}
+                      {dbData?.goals?.length > 0 && (
+                        <Button
+                          size="sm"
+                          onClick={() => triggerTaskGeneration(dbData.goals[0]._id)}
+                          disabled={dbData?.todayTasks?.length > 0 || loading}
+                          className="bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50 disabled:bg-zinc-800 disabled:text-zinc-500 text-xs h-8"
+                        >
+                          <Sparkles className="h-3.5 w-3.5 mr-1" />
+                          {dbData?.todayTasks?.length > 0 ? "Already Exists" : "Gen Today's Tasks"}
+                        </Button>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-3 pt-3">
-                    {dbData?.todayTasks?.length > 0 ? (
-                      dbData.todayTasks.map((task) => (
-                        <div
-                          key={task._id}
-                          className={`flex items-start gap-3 p-4 rounded-xl border transition-all ${
-                            task.status === "COMPLETED"
-                              ? "bg-zinc-900/50 border-zinc-800/40 opacity-70"
-                              : "bg-zinc-900/20 border-zinc-800 hover:border-zinc-700/80"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={task.status === "COMPLETED"}
-                            onChange={() => toggleTaskCompletion(task._id, task.status)}
-                            className="mt-1 h-4.5 w-4.5 rounded border-zinc-800 text-violet-600 focus:ring-violet-500 bg-zinc-900"
-                          />
-                          <div className="flex-1">
-                            <p
-                              className={`text-sm font-semibold text-white ${
-                                task.status === "COMPLETED" ? "line-through text-zinc-500" : ""
+                    {/* Tag Filter Pills */}
+                    {(() => {
+                      const allTags = Array.from(
+                        new Set(
+                          dbData?.goals?.flatMap(g => g.tags || []).filter(Boolean)
+                        )
+                      );
+                      if (allTags.length === 0) return null;
+                      return (
+                        <div className="flex flex-wrap items-center gap-1.5 pb-3 border-b border-zinc-800/40">
+                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider mr-1">Tags:</span>
+                          <button
+                            onClick={() => setSelectedTaskTag("all")}
+                            className={`px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer transition-all ${
+                              selectedTaskTag === "all"
+                                ? "bg-violet-600/90 text-white border border-violet-500/20 shadow-md shadow-violet-600/10"
+                                : "bg-zinc-900/60 text-zinc-400 border border-zinc-800/80 hover:border-zinc-700 hover:text-zinc-300"
+                            }`}
+                          >
+                            All
+                          </button>
+                          {allTags.map((tag) => (
+                            <button
+                              key={tag}
+                              onClick={() => setSelectedTaskTag(tag)}
+                              className={`px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer transition-all ${
+                                selectedTaskTag === tag
+                                  ? "bg-violet-600/90 text-white border border-violet-500/20 shadow-md shadow-violet-600/10"
+                                  : "bg-zinc-900/60 text-zinc-400 border border-zinc-800/80 hover:border-zinc-700 hover:text-zinc-300"
                               }`}
                             >
-                              {task.title}
-                            </p>
-                            <p className="text-xs text-zinc-400 mt-0.5">{task.description}</p>
-                            <div className="flex items-center gap-2 mt-2">
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] ${
-                                  task.priority === "URGENT"
-                                    ? "text-red-400 border-red-500/20"
-                                    : task.priority === "HIGH"
-                                    ? "text-amber-400 border-amber-500/20"
-                                    : "text-zinc-400 border-zinc-700"
+                              #{tag}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    {dbData?.todayTasks?.length > 0 ? (
+                      (() => {
+                        const goalTitleMap = {};
+                        const goalTagsMap = {};
+                        dbData?.goals?.forEach(g => {
+                          goalTitleMap[g._id] = g.title || "";
+                          goalTagsMap[g._id] = g.tags || [];
+                        });
+
+                        const filteredTasks = [...dbData.todayTasks].filter((task) => {
+                          if (selectedTaskTag === "all") return true;
+                          const tags = goalTagsMap[task.goal_id] || [];
+                          return tags.includes(selectedTaskTag);
+                        });
+
+                        if (filteredTasks.length === 0) {
+                          return (
+                            <div className="text-center py-8">
+                              <p className="text-xs text-zinc-500">No tasks found matching #{selectedTaskTag}.</p>
+                              <Button
+                                variant="link"
+                                size="sm"
+                                onClick={() => setSelectedTaskTag("all")}
+                                className="text-violet-400 text-xs hover:text-violet-300 p-0 h-auto mt-1"
+                              >
+                                Clear tag filter
+                              </Button>
+                            </div>
+                          );
+                        }
+
+                        return filteredTasks
+                          .sort((a, b) => {
+                            if (taskSortBasis === "goal") {
+                              const titleA = goalTitleMap[a.goal_id] || "";
+                              const titleB = goalTitleMap[b.goal_id] || "";
+                              if (titleA !== titleB) {
+                                if (!titleA) return 1;
+                                if (!titleB) return -1;
+                                return titleA.localeCompare(titleB);
+                              }
+                            }
+                            if (a.status === "COMPLETED" && b.status !== "COMPLETED") return 1;
+                            if (a.status !== "COMPLETED" && b.status === "COMPLETED") return -1;
+                            return 0;
+                          })
+                          .map((task) => (
+                          <div
+                            key={task._id}
+                            className={`flex items-start gap-3 p-4 rounded-xl border transition-all ${
+                              task.status === "COMPLETED"
+                                ? "bg-zinc-900/50 border-zinc-800/40 opacity-70"
+                                : "bg-zinc-900/20 border-zinc-800 hover:border-zinc-700/80"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={task.status === "COMPLETED"}
+                              onChange={() => toggleTaskCompletion(task._id, task.status)}
+                              className="mt-1 h-4.5 w-4.5 rounded border-zinc-800 text-violet-600 focus:ring-violet-500 bg-zinc-900"
+                            />
+                            <div className="flex-1">
+                              <p
+                                className={`text-sm font-semibold text-white ${
+                                  task.status === "COMPLETED" ? "line-through text-zinc-500" : ""
                                 }`}
                               >
-                                {task.priority}
-                              </Badge>
-                              <span className="text-[10px] text-zinc-500 font-mono">
-                                ⏰ {task.estimated_duration} mins
-                              </span>
+                                {task.title}
+                              </p>
+                              <p className="text-xs text-zinc-400 mt-0.5">{task.description}</p>
+                              <div className="flex items-center gap-2 mt-2">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] ${
+                                    task.priority === "URGENT"
+                                      ? "text-red-400 border-red-500/20"
+                                      : task.priority === "HIGH"
+                                      ? "text-amber-400 border-amber-500/20"
+                                      : "text-zinc-400 border-zinc-700"
+                                  }`}
+                                >
+                                  {task.priority}
+                                </Badge>
+                                {goalTitleMap[task.goal_id] && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] text-violet-400 border-violet-500/20 bg-violet-950/20 max-w-[150px] truncate"
+                                  >
+                                    🎯 {goalTitleMap[task.goal_id]}
+                                  </Badge>
+                                )}
+                                <span className="text-[10px] text-zinc-500 font-mono">
+                                  ⏰ {task.estimated_duration} mins
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))
+                        ));
+                      })()
                     ) : (
                       <div className="text-center py-8 border border-dashed border-zinc-800 rounded-2xl">
                         <AlertTriangle className="h-8 w-8 text-zinc-500 mx-auto mb-2" />
@@ -1171,10 +1372,11 @@ export default function DashboardPage() {
                         {dbData?.goals?.length > 0 ? (
                           <Button
                             onClick={() => triggerTaskGeneration(dbData.goals[0]._id)}
-                            className="bg-violet-600 hover:bg-violet-500 text-white"
+                            disabled={dbData?.todayTasks?.length > 0 || loading}
+                            className="bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50 disabled:bg-zinc-800 disabled:text-zinc-500"
                           >
                             <Sparkles className="mr-1.5 h-4 w-4" />
-                            Generate Daily Tasks
+                            {dbData?.todayTasks?.length > 0 ? "Already Exists" : "Generate Daily Tasks"}
                           </Button>
                         ) : (
                           <Button
@@ -1567,10 +1769,11 @@ export default function DashboardPage() {
                           <Button
                             size="sm"
                             onClick={() => triggerTaskGeneration(goal._id)}
-                            className="bg-violet-600 hover:bg-violet-500 text-white text-xs"
+                            disabled={dbData?.todayTasks?.some(t => t.goal_id === goal._id) || loading}
+                            className="bg-violet-600 hover:bg-violet-500 text-white text-xs disabled:opacity-50 disabled:bg-zinc-800 disabled:text-zinc-500"
                           >
                             <Sparkles className="h-3 w-3 mr-1" />
-                            Generate Tasks
+                            {dbData?.todayTasks?.some(t => t.goal_id === goal._id) ? "Already Exists" : "Generate Tasks"}
                           </Button>
                         </div>
 
@@ -1712,6 +1915,13 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <span className="text-xs text-zinc-500 mr-2 flex items-center gap-1">
+                      {saveStatus === "saving" && (
+                        <Loader2 className="h-3 w-3 text-violet-400 animate-spin" />
+                      )}
+                      {saveStatus === "saving" ? "Saving..." : saveStatus === "unsaved" ? "Unsaved changes" : "Saved"}
+                    </span>
+
                     {selectedJournalId && (
                       <Button
                         size="sm"
@@ -1746,9 +1956,14 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Cover Gradient Art */}
-                <div className="h-36 bg-gradient-to-r from-violet-900/70 via-indigo-900/60 to-zinc-950 w-full relative group shrink-0">
-                  <div className="absolute inset-0 bg-black/10"></div>
+                {/* Cover Image Art */}
+                <div className="h-36 bg-zinc-950 w-full relative group shrink-0 overflow-hidden">
+                  <img
+                    src={getJournalCover(selectedJournalId)}
+                    alt="Cover Image"
+                    className="w-full h-full object-cover opacity-60 group-hover:scale-102 transition-transform duration-550"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-transparent"></div>
                 </div>
 
                 {/* Page Content Workspace Area */}
@@ -1826,8 +2041,63 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
+                  {/* Editor Formatting Toolbar */}
+                  <div className="flex items-center gap-1.5 pb-2 mb-4 border-b border-zinc-900/60 text-zinc-400 select-none">
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting("# ")}
+                      className="px-2.5 py-1 rounded bg-zinc-900/50 hover:bg-zinc-800 text-xs font-bold text-zinc-300 hover:text-white border border-zinc-800/80 transition-colors"
+                      title="Heading 1"
+                    >
+                      H1
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting("## ")}
+                      className="px-2.5 py-1 rounded bg-zinc-900/50 hover:bg-zinc-800 text-xs font-bold text-zinc-300 hover:text-white border border-zinc-800/80 transition-colors"
+                      title="Heading 2"
+                    >
+                      H2
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting("### ")}
+                      className="px-2.5 py-1 rounded bg-zinc-900/50 hover:bg-zinc-800 text-xs font-bold text-zinc-300 hover:text-white border border-zinc-800/80 transition-colors"
+                      title="Heading 3"
+                    >
+                      H3
+                    </button>
+                    <div className="h-4 w-[1px] bg-zinc-800 mx-1"></div>
+                    <button
+                      type="button"
+                      onClick={() => wrapFormatting("**")}
+                      className="px-2.5 py-1 rounded bg-zinc-900/50 hover:bg-zinc-800 text-xs font-bold text-zinc-300 hover:text-white border border-zinc-800/80 transition-colors"
+                      title="Bold"
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => wrapFormatting("*")}
+                      className="px-2.5 py-1 rounded bg-zinc-900/50 hover:bg-zinc-800 text-xs italic font-bold text-zinc-300 hover:text-white border border-zinc-800/80 transition-colors"
+                      title="Italic"
+                    >
+                      I
+                    </button>
+                    <div className="h-4 w-[1px] bg-zinc-800 mx-1"></div>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting("\n\n")}
+                      className="px-2.5 py-1 rounded bg-zinc-900/50 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 hover:text-white border border-zinc-800/80 transition-colors"
+                      title="Paragraph"
+                    >
+                      Para
+                    </button>
+                  </div>
+
                   {/* Main canvas editor block */}
                   <textarea
+                    ref={textareaRef}
                     placeholder="Press '/' for commands or start writing your study reflection..."
                     value={journalContent}
                     onChange={(e) => setJournalContent(e.target.value)}
@@ -1852,100 +2122,116 @@ export default function DashboardPage() {
           );
         })()}
 
-        {/* PANEL D: AI MENTOR CHAT */}
+        {/* PANEL D: AI MENTOR DIALOGUE */}
         {activeTab === "chat" && (
-          <Card className="bg-zinc-900/20 border-zinc-800/80 backdrop-blur-xl h-[calc(100vh-180px)] flex flex-col">
-            <CardHeader className="flex flex-row items-center justify-between border-b border-zinc-900 pb-3">
+          <Card className="bg-zinc-900/20 border-zinc-800/80 backdrop-blur-xl h-[calc(100vh-180px)] flex flex-col overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-zinc-900 pb-3 shrink-0">
               <div>
                 <CardTitle className="text-lg font-bold text-white flex items-center gap-2">
-                  <MessageSquare className="h-5 w-5 text-violet-400 animate-pulse" />
+                  <Brain className="h-5 w-5 text-violet-400" />
                   AI Mentor Dialogue
                 </CardTitle>
-                <CardDescription className="text-zinc-400 text-xs">Personality settings shape prompts automatically</CardDescription>
+                <CardDescription className="text-zinc-400 text-xs">Direct evaluation and strict recommendations based on your progress.</CardDescription>
               </div>
 
-              {/* PERSONALITY SELECTOR & CLEAR ACTION */}
-              <div className="flex items-center gap-2">
-                <select
-                  value={mentorPersonality}
-                  onChange={(e) => setMentorPersonality(e.target.value)}
-                  className="h-8 px-2.5 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-300 focus:outline-none focus:ring-1 focus:ring-violet-500 text-xs"
-                >
-                  <option value="MOTIVATIONAL">Tony Robbins (Motivational)</option>
-                  <option value="STRICT">Marcus Aurelius (Strict)</option>
-                  <option value="FRIENDLY">Ted Lasso (Friendly)</option>
-                  <option value="ANALYTICAL">Andrew Huberman (Analytical)</option>
-                </select>
-
+              <div>
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={handleClearChat}
-                  className="h-8 text-xs border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                  onClick={handleRefreshEvaluation}
+                  disabled={evalLoading}
+                  className="bg-violet-600 hover:bg-violet-500 text-white font-semibold text-xs h-8"
                 >
-                  Clear History
+                  {evalLoading ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                      Evaluating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                      Refresh Insights
+                    </>
+                  )}
                 </Button>
               </div>
             </CardHeader>
 
-            {/* CHAT MESSAGES WINDOW */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {chatHistory.length > 0 ? (
-                chatHistory.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`flex ${
-                      msg.role === "user" ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm shadow-md ${
-                        msg.role === "user"
-                          ? "bg-violet-600 text-white rounded-br-none"
-                          : "bg-zinc-900/80 border border-zinc-800 text-zinc-200 rounded-bl-none"
-                      }`}
-                    >
-                      <p className="leading-relaxed">{msg.content}</p>
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {evalLoading && !evaluation ? (
+                <div className="h-full flex flex-col items-center justify-center text-center">
+                  <Loader2 className="h-8 w-8 text-violet-500 animate-spin mb-4" />
+                  <p className="text-sm text-zinc-400 font-medium">AI Mentor is evaluating your goal timeline...</p>
+                </div>
+              ) : evaluation ? (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full items-stretch">
+                  
+                  {/* Left Column: Suggestions to Improvise More */}
+                  <div className="lg:col-span-2 space-y-4 flex flex-col justify-start">
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="h-4 w-4 text-violet-400" />
+                      Suggestions to Improvise More
+                    </h3>
+                    
+                    <div className="space-y-3">
+                      {evaluation.suggestions && evaluation.suggestions.map((suggestion, idx) => (
+                        <div
+                          key={idx}
+                          className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/10 hover:border-zinc-700/60 transition-colors flex items-start gap-3.5"
+                        >
+                          <div className="h-6 w-6 rounded-full bg-violet-950 border border-violet-850 flex items-center justify-center text-[10px] font-bold text-violet-400 shrink-0 mt-0.5">
+                            {idx + 1}
+                          </div>
+                          <p className="text-sm text-zinc-300 leading-relaxed font-medium">
+                            {suggestion}
+                          </p>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))
+
+                  {/* Right Column: Brutal Motivation */}
+                  <div className="flex flex-col justify-stretch">
+                    <div className="h-full p-6 rounded-2xl border border-red-500/25 bg-red-950/10 flex flex-col justify-between items-start space-y-6 shadow-inner relative overflow-hidden">
+                      <div className="absolute right-[-10px] top-[-10px] opacity-[0.03] text-red-500 pointer-events-none select-none">
+                        <Flame className="h-48 w-48" />
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center gap-2 text-red-400 mb-4">
+                          <Flame className="h-5 w-5 fill-red-500 animate-pulse" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest font-mono">Tough Love</span>
+                        </div>
+                        
+                        <p className="text-base md:text-lg text-red-100 font-bold leading-relaxed italic relative z-10">
+                          "{evaluation.brutal_motivation || evaluation.brutal_motivation_line}"
+                        </p>
+                      </div>
+
+                      <div className="w-full pt-4 border-t border-red-950/50 flex items-center justify-between text-[10px] text-red-400/60 font-mono font-bold uppercase">
+                        <span>AI Mentor Feedback</span>
+                        <span>Do the Work</span>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-center max-w-sm mx-auto">
-                  <Sparkles className="h-8 w-8 text-violet-400 mb-2 animate-bounce" />
-                  <p className="text-sm font-semibold text-zinc-300">Start conversation with your AI Mentor</p>
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Ask for strategy advice, habit checks, or help resolving blockers.
+                  <AlertTriangle className="h-8 w-8 text-zinc-500 mb-2 animate-bounce" />
+                  <p className="text-sm font-semibold text-zinc-300">No Evaluation Data</p>
+                  <p className="text-xs text-zinc-500 mt-1 mb-4">
+                    Establish goals or click the button below to trigger your first mentor evaluation.
                   </p>
+                  <Button
+                    onClick={handleRefreshEvaluation}
+                    className="bg-violet-600 hover:bg-violet-500 text-white"
+                  >
+                    <Sparkles className="mr-1.5 h-4 w-4" />
+                    Get Mentor Evaluation
+                  </Button>
                 </div>
               )}
-              {chatLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl rounded-bl-none px-4 py-3">
-                    <Loader2 className="h-4 w-4 text-violet-500 animate-spin" />
-                  </div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
             </div>
-
-            {/* CHAT FORM */}
-            <form onSubmit={handleSendMessage} className="p-4 border-t border-zinc-900 flex gap-2">
-              <Input
-                type="text"
-                placeholder="Ask your mentor..."
-                value={chatMessage}
-                onChange={(e) => setChatMessage(e.target.value)}
-                disabled={chatLoading}
-                className="bg-zinc-950 border-zinc-800 text-zinc-100 flex-1 h-11"
-              />
-              <Button
-                type="submit"
-                disabled={chatLoading || !chatMessage.trim()}
-                className="bg-violet-600 hover:bg-violet-500 text-white px-5 h-11"
-              >
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </form>
           </Card>
         )}
 

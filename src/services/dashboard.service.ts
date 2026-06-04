@@ -15,8 +15,23 @@ class DashboardServiceClass {
     logger.info(`Fetching dashboard aggregation data for user ${userId}`);
 
     try {
+      // 1. Fetch active goals first
+      const goals = await GoalRepository.find({ user_id: userId, status: 'ACTIVE' }, { sort: { deadline: 1 } });
+
+      // Auto-generate daily tasks for each active goal if they do not exist for today yet
+      const { TaskGeneratorService } = require('./task-generator.service');
+      await Promise.all(
+        goals.map(async (goal: any) => {
+          try {
+            await TaskGeneratorService.generateDailyTasks(userId, goal._id.toString());
+          } catch (err) {
+            logger.error(`Failed to auto-generate daily tasks for goal ${goal._id}`, err);
+          }
+        })
+      );
+
+      // 2. Fetch the remaining dashboard aggregation data in parallel
       const [
-        goals,
         todayTasks,
         streak,
         weeklyCompletionRate,
@@ -25,28 +40,25 @@ class DashboardServiceClass {
         calendarEvents,
         notifications,
       ] = await Promise.all([
-        // 1. Fetch active goals
-        GoalRepository.find({ user_id: userId, status: 'ACTIVE' }, { sort: { deadline: 1 } }),
-
-        // 2. Fetch scheduled tasks for today
+        // Fetch scheduled tasks for today (includes the newly auto-generated ones)
         TaskRepository.findTodayTasks(userId),
 
-        // 3. Calculate habit streak
+        // Calculate habit streak
         ProgressRepository.getStreak(userId),
 
-        // 4. Calculate weekly completion rate
+        // Calculate weekly completion rate
         ProgressRepository.getWeeklyAverage(userId),
 
-        // 5. Fetch recent GitHub activity
+        // Fetch recent GitHub activity
         GithubStatsRepository.findByUser(userId),
 
-        // 6. Fetch last 5 journal entries
+        // Fetch last 5 journal entries
         JournalRepository.findByUser(userId, 5),
 
-        // 7. Fetch upcoming calendar events
+        // Fetch upcoming calendar events
         CalendarEventRepository.findUpcoming(userId, 5),
 
-        // 8. Fetch last 5 notifications
+        // Fetch last 5 notifications
         NotificationRepository.find({ user_id: userId }, { sort: { created_at: -1 }, limit: 5 }),
       ]);
 

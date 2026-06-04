@@ -8,62 +8,41 @@ import { logger } from '@/lib/utils/logger';
 export async function GET(req: NextRequest) {
   try {
     const { userId } = getAuthUser(req);
-    const { searchParams } = new URL(req.url);
-    const contextType = (searchParams.get('contextType') || 'MENTOR') as any;
-    const goalId = searchParams.get('goalId') || undefined;
-
-    const messages = await MentorChatService.getChatHistory(userId, contextType, goalId);
-    return successResponse(messages);
+    const evaluation = await MentorChatService.getLatestEvaluation(userId);
+    return successResponse(evaluation);
   } catch (error) {
     if (error instanceof ApiError) {
       return errorResponse(error.message, error.code, error.statusCode, error.details);
     }
-    logger.error('Error fetching chat history', error);
-    return internalError('Failed to fetch chat history');
+    logger.error('Error fetching AI Mentor evaluation', error);
+    return internalError('Failed to fetch AI Mentor evaluation');
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
     const { userId } = getAuthUser(req);
-    const body = await req.json().catch(() => ({}));
-    const { message, contextType = 'MENTOR', goalId } = body;
-
-    if (!message || typeof message !== 'string' || message.trim() === '') {
-      return errorResponse('message is required', 'VALIDATION_ERROR', 400);
-    }
-
-    const aiMessage = await MentorChatService.sendMessage(
-      userId,
-      message,
-      contextType,
-      goalId
-    );
-
-    return successResponse({ response: aiMessage });
+    const evaluation = await MentorChatService.generateEvaluation(userId);
+    return successResponse(evaluation);
   } catch (error) {
     if (error instanceof ApiError) {
       return errorResponse(error.message, error.code, error.statusCode, error.details);
     }
-    logger.error('Error sending chat message', error);
-    return internalError('Failed to process message');
+    logger.error('Error generating AI Mentor evaluation', error);
+    return internalError('Failed to generate AI Mentor evaluation');
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
     const { userId } = getAuthUser(req);
-    const { searchParams } = new URL(req.url);
-    const contextType = (searchParams.get('contextType') || 'MENTOR') as any;
-    const goalId = searchParams.get('goalId') || undefined;
-
-    await MentorChatService.clearChatHistory(userId, contextType, goalId);
-    return successResponse({ message: 'Conversation history cleared successfully' });
+    await MentorChatService.clearChatHistory(userId, 'MENTOR');
+    return successResponse({ message: 'Evaluation history cleared successfully' });
   } catch (error) {
     if (error instanceof ApiError) {
       return errorResponse(error.message, error.code, error.statusCode, error.details);
     }
-    logger.error('Error clearing chat history', error);
-    return internalError('Failed to clear chat history');
+    logger.error('Error clearing evaluation history', error);
+    return internalError('Failed to clear evaluation history');
   }
 }

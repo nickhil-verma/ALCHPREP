@@ -3,7 +3,7 @@ import { UserPreferencesRepository } from '@/repositories/user-preferences.repos
 import { UserRepository } from '@/repositories/user.repository';
 import { GoalRepository } from '@/repositories/goal.repository';
 import { openai, AI_MODEL } from '@/lib/ai/client';
-import { MENTOR_CHAT_PROMPT } from '@/lib/ai/prompts';
+import { MENTOR_CHAT_PROMPT, MENTOR_EVALUATION_PROMPT } from '@/lib/ai/prompts';
 import { logger } from '@/lib/utils/logger';
 import { ApiError } from '@/lib/utils/api-error';
 import type { AIMessage } from '@/types/ai.types';
@@ -141,6 +141,96 @@ class MentorChatServiceClass {
     const conversation = await AIConversationRepository.findLatest(userId, contextType, goalId);
     if (conversation) {
       await AIConversationRepository.clearConversation(conversation._id.toString());
+    }
+  }
+
+  /**
+   * Retrieves the latest generated evaluation (suggestions + brutal motivation)
+   */
+  async getLatestEvaluation(userId: string): Promise<{ suggestions: string[]; brutal_motivation: string }> {
+    logger.info(`Fetching latest AI Mentor evaluation for user ${userId}`);
+    const conversation = await AIConversationRepository.findLatest(userId, 'MENTOR');
+    
+    // Check if we have an evaluation saved in the last assistant message
+    const lastMsg = conversation?.messages?.filter(m => m.role === 'assistant').pop();
+    if (lastMsg) {
+      try {
+        const parsed = JSON.parse(lastMsg.content);
+        if (parsed.suggestions && parsed.brutal_motivation) {
+          return parsed;
+        }
+      } catch (e) {
+        logger.warn(`Failed to parse cached evaluation content: ${e}`);
+      }
+    }
+    
+    // If no valid cached evaluation, generate a new one!
+    return this.generateEvaluation(userId);
+  }
+
+  /**
+   * Generates a new evaluation (suggestions + brutal motivation) and caches it
+   */
+  async generateEvaluation(userId: string): Promise<{ suggestions: string[]; brutal_motivation: string }> {
+    logger.info(`Generating new AI Mentor evaluation for user ${userId}`);
+
+    try {
+      // 1. Fetch user details and active goals
+      const user = await UserRepository.findById(userId);
+      const activeGoals = await GoalRepository.find({ user_id: userId, status: 'ACTIVE' });
+      const goalsSummary = activeGoals.map((g) => `Goal: ${g.title} (Progress: ${g.progress_percentage}%)`).join('; ') || 'No active goals set.';
+
+      // 2. Fetch memory context
+      const memoryContext = await getContextForUser(userId);
+
+      // 3. Construct System Prompt
+      const systemPrompt = MENTOR_EVALUATION_PROMPT
+        .replace('{user_name}', user?.name || 'User')
+        .replace('{active_goals}', goalsSummary)
+        .replace('{memory_context}', memoryContext);
+
+      // 4. Get response from OpenAI
+      const completion = await openai.chat.completions.create({
+        model: AI_MODEL,
+        messages: [{ role: 'user', content: systemPrompt }],
+        temperature: 0.8,
+      });
+
+      const responseContent = completion.choices[0]?.message?.content;
+      if (!responseContent) {
+        throw new Error('AI returned an empty response');
+      }
+
+      // Try parsing JSON to ensure it is valid
+      const parsed = JSON.parse(responseContent.trim());
+      if (!parsed.suggestions || !parsed.brutal_motivation) {
+        throw new Error('AI response did not match suggestions/brutal_motivation structure');
+      }
+
+      // 5. Cache this in the database under context 'MENTOR'
+      let conversation = await AIConversationRepository.findLatest(userId, 'MENTOR');
+      if (!conversation) {
+        conversation = await AIConversationRepository.createConversation(userId, 'MENTOR');
+      } else {
+        // Clear previous messages to only keep the latest evaluation
+        await AIConversationRepository.clearConversation(conversation._id.toString());
+      }
+      
+      const assistantMessage: AIMessage = { role: 'assistant', content: JSON.stringify(parsed) };
+      await AIConversationRepository.addMessage(conversation._id.toString(), assistantMessage);
+
+      return parsed;
+    } catch (error) {
+      logger.error('Error generating AI mentor evaluation', error);
+      // Fallback
+      return {
+        suggestions: [
+          "Establish your goals clearly inside the Goals tab.",
+          "Break down your milestones into daily study sessions.",
+          "Complete today's study block before reflecting in your journal."
+        ],
+        brutal_motivation: "Zero excuses. Go to the dashboard, set your target, and start executing. Every second you spend slacking is a second someone else spends winning."
+      };
     }
   }
 }
